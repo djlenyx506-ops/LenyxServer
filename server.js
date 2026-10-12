@@ -13,6 +13,8 @@ const ALLOWED = (process.env.ALLOWED_USERS || '')        // opcional: usuarios p
 // BEGIN_FRAME
 const nm = (d) => d?.user?.uniqueId || d?.user?.nickname || d?.uniqueId || d?.nickname || 'alguien';
 const seen = new Set();
+const recent = new Set(); // ids de mensajes ya enviados (evita repetir al reconectar)
+const lvl = (d) => d.level ?? d.newLevel ?? d.upgradeLevel ?? d.fansLevel ?? d.currentLevel ?? d.user?.level ?? 0;
 function mapFrame(raw, send, dbg) {
   let obj;
   try { obj = JSON.parse(raw.toString()); } catch { if (dbg) dbg('frame no JSON'); return; }
@@ -21,7 +23,15 @@ function mapFrame(raw, send, dbg) {
   for (const m of list) {
     const type = String(m.type ?? m.decodedData?.type ?? '');
     const d = m.data ?? m.decodedData?.data ?? m;
+    const mid = d?.common?.msgId ?? d?.msgId;
+    if (mid != null) {
+      const k = String(mid);
+      if (recent.has(k)) continue;
+      recent.add(k);
+      if (recent.size > 2000) recent.delete(recent.values().next().value);
+    }
     if (/roomuser/i.test(type)) { send({ t: 'viewers', n: d.viewerCount || d.totalUser || 0 }); }
+    else if (/level|upgrade|fansclub/i.test(type)) { send({ t: 'level', u: nm(d), n: lvl(d) }); }
     else if (/chat/i.test(type)) { send({ t: 'chat', u: nm(d), m: String(d.comment || d.content || '') }); }
     else if (/gift/i.test(type)) {
       const gd = d.giftDetails || {};
@@ -38,6 +48,7 @@ function mapFrame(raw, send, dbg) {
     else if (/control/i.test(type)) {
       if (d.action === 3 || /end/i.test(String(d.action ?? ''))) send({ t: 'status', s: 'ended' });
     }
+    else if (/level|upgrade/i.test(String(d.common?.displayText?.key ?? ''))) { send({ t: 'level', u: nm(d), n: lvl(d) }); }
     else if (!seen.has(type)) { seen.add(type); if (dbg) dbg('tipo ignorado: ' + type); }
   }
 }
