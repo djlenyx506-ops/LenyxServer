@@ -46,7 +46,7 @@ function mapFrame(raw, send, dbg) {
       if (/follow/i.test(kind) || kind === '1') send({ t: 'follow', u: nm(d) });
     }
     else if (/control/i.test(type)) {
-      if (d.action === 3 || /end/i.test(String(d.action ?? ''))) send({ t: 'status', s: 'ended' });
+      if (d.action === 3) send({ t: 'status', s: 'ended' });
     }
     else if (/level|upgrade/i.test(String(d.common?.displayText?.key ?? ''))) { send({ t: 'level', u: nm(d), n: lvl(d) }); }
     else if (!seen.has(type)) { seen.add(type); if (dbg) dbg('tipo ignorado: ' + type); }
@@ -61,14 +61,62 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({ server });
 
 wss.on('connection', (app) => {
-  let up = null;
-  let got = false;
+  let up = null;       // conexión con Euler
+  let got = false;     // ¿ya llegó algún mensaje?
+  let wantUp = false;  // ¿la app quiere seguir conectada?
+  let tries = 0;       // reintentos de reconexión
+  let endT = null;     // temporizador de "fin de live"
+  let user = '';
   let n = 0;
   app.isAlive = true;
   app.on('pong', () => (app.isAlive = true));
   const send = (o) => { if (app.readyState === 1) app.send(JSON.stringify(o)); };
   const dbg = (t) => { if (n++ < 8) console.log(t); };
-  const stop = () => { if (up) { up.removeAllListeners(); up.on('error', () => {}); try { up.close(); } catch {} up = null; } };
+  const clearEnd = () => { if (endT) { clearTimeout(endT); endT = null; } };
+  const stop = () => {
+    wantUp = false;
+    clearEnd();
+    if (up) { up.removeAllListeners(); up.on('error', () => {}); try { up.close(); } catch {} up = null; }
+  };
+  // El fin del live solo se confirma si en 20 s no llega ningún evento más
+  const out = (o) => {
+    if (o.t === 'status' && o.s === 'ended') {
+      if (!endT) endT = setTimeout(() => { send(o); stop(); }, 20000);
+      return;
+    }
+    if (endT && ['chat', 'gift', 'like', 'join', 'follow'].includes(o.t)) clearEnd();
+    send(o);
+  };
+
+  const openUp = () => {
+    const url = 'wss://ws.eulerstream.com?uniqueId=' + encodeURIComponent(user) + '&apiKey=' + encodeURIComponent(EULER_API_KEY);
+    const mine = new WebSocket(url);
+    up = mine;
+    mine.on('open', () => { console.log('Conectado a Euler para @' + user); send({ t: 'status', s: 'connected' }); });
+    mine.on('message', (data) => { got = true; tries = 0; try { mapFrame(data, out, dbg); } catch (e) { console.error('Error al procesar:', e?.message || e); } });
+    mine.on('error', (e) => console.error('Error de Euler:', e?.message || e));
+    mine.on('close', (code, reason) => {
+      if (up !== mine) return;
+      up = null;
+      const why = reason ? reason.toString() : '';
+      console.log('Euler cerró la conexión', code, why);
+      if (!wantUp) return;
+      if (!got) {
+        wantUp = false;
+        send({ t: 'status', s: 'error', msg: 'No se pudo conectar al live' + (why ? ': ' + why : '') + ' (código ' + code + '). ¿Estás en vivo?' });
+        return;
+      }
+      if (tries < 6) {
+        tries++;
+        console.log('Reconectando con Euler, intento ' + tries);
+        send({ t: 'status', s: 'reconnecting' });
+        setTimeout(() => { if (wantUp && !up) openUp(); }, Math.min(1500 * tries, 8000));
+      } else {
+        wantUp = false;
+        send({ t: 'status', s: 'ended' });
+      }
+    });
+  };
 
   app.on('message', (raw) => {
     let m;
@@ -77,26 +125,12 @@ wss.on('connection', (app) => {
     if (m.cmd !== 'connect') return;
     if (APP_KEY && m.key !== APP_KEY) { send({ t: 'status', s: 'error', msg: 'Clave del servidor incorrecta' }); return; }
     if (!EULER_API_KEY) { send({ t: 'status', s: 'error', msg: 'Falta EULER_API_KEY en el servidor' }); return; }
-    const user = String(m.user || '').replace(/^@/, '').trim();
+    user = String(m.user || '').replace(/^@/, '').trim();
     if (!/^[\w.]{2,40}$/.test(user)) { send({ t: 'status', s: 'error', msg: 'Usuario no válido' }); return; }
     if (ALLOWED.length && !ALLOWED.includes(user.toLowerCase())) { send({ t: 'status', s: 'error', msg: 'Usuario no permitido en este servidor' }); return; }
-
-    stop(); got = false; n = 0;
-    const url = 'wss://ws.eulerstream.com?uniqueId=' + encodeURIComponent(user) + '&apiKey=' + encodeURIComponent(EULER_API_KEY);
-    const mine = new WebSocket(url);
-    up = mine;
-    mine.on('open', () => { console.log('Conectado a Euler para @' + user); send({ t: 'status', s: 'connected' }); });
-    mine.on('message', (data) => { got = true; try { mapFrame(data, send, dbg); } catch (e) { console.error('Error al procesar:', e?.message || e); } });
-    mine.on('error', (e) => console.error('Error de Euler:', e?.message || e));
-    mine.on('close', (code, reason) => {
-      if (up !== mine) return;
-      up = null;
-      const why = reason ? reason.toString() : '';
-      console.log('Euler cerró la conexión', code, why);
-      send(got
-        ? { t: 'status', s: 'ended' }
-        : { t: 'status', s: 'error', msg: 'No se pudo conectar al live' + (why ? ': ' + why : '') + ' (código ' + code + '). ¿Estás en vivo?' });
-    });
+    stop();
+    wantUp = true; got = false; tries = 0; n = 0;
+    openUp();
   });
 
   app.on('close', stop);
