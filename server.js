@@ -142,7 +142,7 @@ wss.on('connection', (app, req) => {
       if (tries < 6) {
         tries++;
         console.log('Reconectando con Euler, intento ' + tries);
-        send({ t: 'status', s: 'reconnecting' });
+        send({ t: 'status', s: 'reconnecting', why: 'Euler cerró la conexión (' + code + (why ? ': ' + why : '') + ')' });
         setTimeout(() => { if (wantUp && !up) openUp(); }, Math.min(1500 * tries, 8000));
       } else {
         wantUp = false;
@@ -154,6 +154,7 @@ wss.on('connection', (app, req) => {
   app.on('message', (raw) => {
     let m;
     try { m = JSON.parse(raw.toString()); } catch { return; }
+    if (m.cmd === 'ping') { send({ t: 'pong' }); return; }
     if (m.cmd === 'login') {
       if (blocked(ip)) { send({ t: 'auth', ok: false, msg: 'Demasiados intentos. Espera un minuto.' }); return; }
       if (APP_KEY && m.key !== APP_KEY) { send({ t: 'auth', ok: false, msg: 'Clave del servidor incorrecta' }); return; }
