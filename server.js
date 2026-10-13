@@ -39,7 +39,7 @@ function mapFrame(raw, send, dbg) {
       const g = gd.giftName || d.giftName || d.gift?.name || ('Regalo ' + (d.giftId ?? ''));
       send({ t: 'gift', u: nm(d), g, n: d.repeatCount || d.comboCount || 1 });
     }
-    else if (/like/i.test(type)) { send({ t: 'like', u: nm(d), n: d.likeCount || d.count || 1 }); }
+    else if (/like/i.test(type)) { send({ t: 'like', u: nm(d), n: d.likeCount || d.count || 1, total: d.totalLikeCount ?? d.totalLikes ?? 0 }); }
     else if (/member/i.test(type)) { send({ t: 'join', u: nm(d) }); }
     else if (/social/i.test(type)) {
       const kind = String(d.messageKind ?? d.displayType ?? d.common?.displayText?.key ?? d.action ?? '');
