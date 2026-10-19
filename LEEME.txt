@@ -1,37 +1,17 @@
 SERVIDOR DE LENYX LIVE
 ======================
-Escucha tu live de TikTok y manda los regalos, comentarios, seguidores y
-entradas a la app. Usa la librería no oficial "tiktok-live-connector".
+Publica estos archivos (server.js y package.json) en un repositorio de GitHub
+y despliégalo como Web Service en render.com:
+  Build Command: npm install
+  Start Command: npm start
 
-PUBLICAR GRATIS EN RENDER (desde GitHub)
-1. En github.com crea un repositorio nuevo llamado LenyxServer y sube
-   estos 3 archivos: server.js, package.json y LEEME.txt.
-2. Entra en render.com y regístrate con tu cuenta de GitHub.
-3. Pulsa New + -> Web Service -> elige el repositorio LenyxServer.
-4. Configura:
-   - Runtime / Language: Node
-   - Build Command:  npm install
-   - Start Command:  npm start
-   - Instance Type:  Free
-5. En "Environment Variables" agrega:
-   APP_KEY = una clave que inventes (ej. lenyx-2026-clave)
-6. Pulsa Create Web Service y espera a que diga "Live".
-7. Copia la dirección que te da Render, por ejemplo
-   https://lenyxserver.onrender.com
-   En la app usarás la misma dirección cambiando https por wss:
-   wss://lenyxserver.onrender.com
+VARIABLES DE ENTORNO (Render > Environment)
+  APP_KEY        Clave del servidor (la misma que está en index.html, línea SERVER).
+  EULER_API_KEY  Clave gratis de eulerstream.com.
+  USERS          Usuarios autorizados: usuario:clave,usuario2:clave2:AAAA-MM-DD
+                 (sin espacios; la fecha de vencimiento es opcional).
+  ALLOWED_USERS  (opcional) Usuarios de TikTok permitidos, separados por coma.
+  TOKEN_SECRET   (opcional) Secreto para firmar las sesiones.
 
-USO EN LA APP
-En la pestaña En vivo abre "Servidor para TikTok real", pega la dirección
-wss://... y la clave (APP_KEY). Escribe tu usuario de TikTok (tienes que
-estar EN VIVO) y pulsa Conectar.
-
-NOTAS
-- El plan gratis de Render se duerme tras ~15 min sin uso. La primera
-  conexión puede tardar hasta un minuto. Abre antes la dirección https
-  en el navegador para despertarlo.
-- Variables opcionales en Render:
-  SIGN_API_KEY  = clave gratis de eulerstream.com (si hay límites de uso)
-  EULER_ROOMID  = 1 (si TikTok bloquea la conexión desde la nube)
-- La librería no es oficial: TikTok puede cambiar cosas y dejar de
-  funcionar hasta que se actualice. Úsala solo en tu propio live.
+Para que no se duerma (plan gratis): crea un monitor HTTP en uptimerobot.com
+que visite tu dirección https cada 5 minutos.
