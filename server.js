@@ -80,8 +80,24 @@ function mapFrame(raw, send, dbg) {
     else if (/control/i.test(type)) {
       if (d.action === 3) send({ t: 'status', s: 'ended' });
     }
-    else if (/level|upgrade/i.test(String(d.common?.displayText?.key ?? ''))) { send({ t: 'level', u: nm(d), n: lvl(d) }); }
-    else if (!seen.has(type)) { seen.add(type); if (dbg) dbg('tipo ignorado: ' + type); }
+    else {
+      // Mensajes que no usamos: buscamos pistas de "subida de nivel" en su texto y avisamos qué llegó
+      const dt = d.common?.displayText || {};
+      const text = [dt.key, dt.defaultPattern, d.content, d.text, d.message, d.comment].filter((x) => typeof x === 'string').join(' ');
+      if (/level|lvl|upgrade|nivel/i.test(type + ' ' + text)) {
+        const nums = [...text.matchAll(/(?:level|lvl|nivel)\D{0,8}(\d{1,3})/gi)].map((x) => +x[1]).filter((x) => x > 0);
+        const num = nums.length ? nums[nums.length - 1] : 0;
+        const pu = dt.piecesList?.find?.((p) => p?.userValue)?.userValue?.user;
+        send({ t: 'level', u: pu?.uniqueId || pu?.nickname || nm(d), n: num || lvl(d) });
+        send({ t: 'dbg', m: 'Nivel detectado (' + type + '): ' + text.slice(0, 160) });
+      } else if (!seen.has(type)) {
+        seen.add(type);
+        let j = '';
+        try { j = JSON.stringify(d).slice(0, 260); } catch {}
+        if (dbg) dbg('tipo ignorado: ' + type);
+        send({ t: 'dbg', m: 'Tipo sin usar: ' + type + ' ' + j });
+      }
+    }
   }
 }
 // END_FRAME
@@ -197,6 +213,7 @@ wss.on('connection', (app, req) => {
     if (!/^[\w.]{2,40}$/.test(user)) { send({ t: 'status', s: 'error', msg: 'Usuario no válido' }); return; }
     if (ALLOWED.length && !ALLOWED.includes(user.toLowerCase())) { send({ t: 'status', s: 'error', msg: 'Usuario no permitido en este servidor' }); return; }
     stop();
+    seen.clear();
     wantUp = true; got = false; tries = 0; n = 0;
     openUp();
   });
