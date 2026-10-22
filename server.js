@@ -1,4 +1,4 @@
-// Servidor de Lenyx Live v2.2 (Corregido y funcional)
+// Servidor de Lenyx Live v2.2 (Con extracción de PNG de regalos)
 import http from 'node:http';
 import crypto from 'node:crypto';
 import WebSocket, { WebSocketServer } from 'ws';
@@ -8,7 +8,6 @@ const APP_KEY = process.env.APP_KEY || '';
 const EULER_API_KEY = process.env.EULER_API_KEY || '';
 const ALLOWED = (process.env.ALLOWED_USERS || '').split(',').map((s) => s.trim().toLowerCase().replace(/^@/, '')).filter(Boolean);
 
-// BEGIN_AUTH
 const USERS = new Map();
 for (const item of (process.env.USERS || '').split(',')) {
   const [u, p, exp] = item.trim().split(':');
@@ -50,13 +49,22 @@ function fail(ip) {
   if (f.n >= 5) { f.until = Date.now() + 60000; f.n = 0; }
   fails.set(ip, f);
 }
-// END_AUTH
 
-// BEGIN_FRAME
 const nm = (d) => d?.user?.uniqueId || d?.user?.nickname || d?.uniqueId || d?.nickname || 'alguien';
 const seen = new Set();
 const recent = new Set();
 const lvl = (d) => d.level ?? d.newLevel ?? d.upgradeLevel ?? d.fansLevel ?? d.currentLevel ?? d.user?.level ?? 0;
+
+function pickImg(...cands) {
+  for (const c of cands) {
+    const list = Array.isArray(c) ? c : (c?.url_list || c?.urlList);
+    if (Array.isArray(list) && list.length) {
+      return list.find((u) => /.png(?|$)/i.test(u)) || list[0];
+    }
+    if (typeof c === 'string' && c) return c;
+  }
+  return null;
+}
 
 function mapFrame(raw, send, dbg) {
   let obj;
@@ -89,11 +97,10 @@ function mapFrame(raw, send, dbg) {
       const g = gd.giftName || d.giftName || d.gift?.name || ('Regalo ' + (d.giftId ?? ''));
       const giftId = gd.giftId || d.giftId || d.gift?.id || d.id;
       
-      // Extraer la URL de la imagen (PNG)
-      const giftImg = (gd.image?.url_list?.[0]) || 
-                      (d.gift?.image?.url_list?.[0]) || 
-                      (d.image?.url_list?.[0]) || 
-                      null;
+      const giftImg = pickImg(
+        gd.image?.url_list, d.gift?.image?.url_list, d.image?.url_list,
+        gd.giftPictureUrl, d.giftPictureUrl, d.gift?.image
+      );
 
       send({ 
         t: 'gift', 
@@ -101,7 +108,7 @@ function mapFrame(raw, send, dbg) {
         g, 
         n: d.repeatCount || d.comboCount || 1,
         id: giftId,
-        img: giftImg
+        img: giftImg // <-- URL DEL PNG PARA LA APP
       });
     }
     
@@ -133,7 +140,6 @@ function mapFrame(raw, send, dbg) {
     }
   }
 }
-// END_FRAME
 
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
