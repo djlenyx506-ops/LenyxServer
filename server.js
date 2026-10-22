@@ -1,4 +1,4 @@
-// Servidor de Lenyx Live v2.5
+// Servidor de Lenyx Live v2.6
 // App (tu teléfono) <-> este servidor <-> WebSocket gestionado de Euler Stream <-> TikTok LIVE
 import http from 'node:http';
 import crypto from 'node:crypto';
@@ -294,9 +294,93 @@ function mapFrame(raw, send, dbg, ctx) {
 }
 // END_FRAME
 
-const server = http.createServer((req, res) => {
+// ===== Catálogo de regalos (GET /gifts) =====
+// Usa la ruta oficial de Euler /webcast/gifts/catalog (no cuenta para los límites de peticiones).
+const EULER_API_BASE = process.env.EULER_API_BASE || 'https://api.eulerstream.com';
+const GIFTS_TTL_MS = 6 * 3600 * 1000; // se refresca cada 6 horas
+let giftCache = { at: 0, data: null, loading: null };
+
+// imageUri puede venir como URL completa o como ruta de TikTok; se arma una URL probable (a mejor esfuerzo)
+function catalogImg(uri) {
+  if (!uri) return null;
+  let u = String(uri);
+  if (u.startsWith('http')) return u;
+  while (u.startsWith('/')) u = u.slice(1);
+  if (!u.startsWith('maliva/') && !u.startsWith('alisg/')) u = 'maliva/' + u;
+  const last = u.slice(u.lastIndexOf('/') + 1);
+  if (!last.includes('~') && !last.includes('.')) u += '~tplv-obj.image';
+  return 'https://p16-webcast.tiktokcdn.com/img/' + u;
+}
+
+async function loadGiftCatalog() {
+  if (giftCache.data && Date.now() - giftCache.at < GIFTS_TTL_MS) return giftCache.data;
+  if (giftCache.loading) return giftCache.loading;
+  giftCache.loading = (async () => {
+    const all = [];
+    const names = new Set();
+    let page = 1;
+    let totalPages = 1;
+    do {
+      const url = EULER_API_BASE + '/webcast/gifts/catalog?pageSize=100&pageNumber=' + page;
+      const r = await fetch(url, {
+        headers: { 'x-api-key': EULER_API_KEY, accept: 'application/json' },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!r.ok) throw new Error('Euler respondió ' + r.status);
+      const j = await r.json();
+      for (const g of j.gifts || []) {
+        if (!g || !g.giftName || names.has(g.giftName)) continue;
+        names.add(g.giftName);
+        all.push({ id: g.giftId, name: g.giftName, diamonds: g.diamondCount, uri: g.imageUri || '', img: catalogImg(g.imageUri) });
+      }
+      totalPages = Number(j.totalPages) || 1;
+      page++;
+    } while (page <= totalPages && page <= 30);
+    console.log('Catálogo de regalos cargado: ' + all.length + ' regalos. Ejemplo: ' + JSON.stringify(all[0] || null));
+    giftCache = { at: Date.now(), data: all, loading: null };
+    return all;
+  })().catch((e) => {
+    giftCache.loading = null;
+    throw e;
+  });
+  return giftCache.loading;
+}
+
+const CORS = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-headers': 'authorization',
+  'access-control-allow-methods': 'GET, OPTIONS',
+};
+
+const server = http.createServer(async (req, res) => {
+  const path = String(req.url || '').split('?')[0];
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, CORS);
+    res.end();
+    return;
+  }
+
+  if (path === '/gifts') {
+    const h = String(req.headers.authorization || '');
+    const tok = h.startsWith('Bearer ') ? h.slice(7) : h;
+    const json = (code, obj, extra) => {
+      res.writeHead(code, { ...CORS, 'content-type': 'application/json; charset=utf-8', ...(extra || {}) });
+      res.end(JSON.stringify(obj));
+    };
+    if (!verifyToken(tok)) return json(401, { error: 'No autorizado' });
+    if (!EULER_API_KEY) return json(503, { error: 'Falta EULER_API_KEY en el servidor' });
+    try {
+      const gifts = await loadGiftCatalog();
+      return json(200, { gifts }, { 'cache-control': 'private, max-age=3600' });
+    } catch (e) {
+      console.error('Error al cargar el catálogo de regalos:', e?.message || e);
+      return json(502, { error: 'No se pudo obtener el catálogo' });
+    }
+  }
+
   res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
-  res.end('Servidor de Lenyx Live activo v2.5 🟢');
+  res.end('Servidor de Lenyx Live activo v2.6 🟢');
 });
 
 const wss = new WebSocketServer({ server, maxPayload: MAX_PAYLOAD });
