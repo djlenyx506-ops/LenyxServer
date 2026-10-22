@@ -1,6 +1,6 @@
 {
   "name": "lenyx-live-server",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "type": "module",
   "main": "server.js",
   "scripts": {
@@ -10,7 +10,6 @@
     "node": ">=18"
   },
   "dependencies": {
-    "ws": "^8.18.0",
-    "tiktok-live-connector": "^1.2.0"
+    "ws": "^8.18.1"
   }
 }
