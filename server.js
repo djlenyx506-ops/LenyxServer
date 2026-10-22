@@ -20,9 +20,16 @@ for (const item of (process.env.USERS || '').split(',')) {
 const SECRET = process.env.TOKEN_SECRET || APP_KEY || EULER_API_KEY || 'cambia-esto';
 const b64 = (x) => Buffer.from(x).toString('base64url');
 const hmac = (x) => crypto.createHmac('sha256', SECRET).update(x).digest('base64url');
-const safeEq = (a, b) => { const x = Buffer.from(String(a)), y = Buffer.from(String(b)); return x.length === y.length && crypto.timingSafeEqual(x, y); };
+const safeEq = (a, b) => { 
+  const x = Buffer.from(String(a)), y = Buffer.from(String(b)); 
+  return x.length === y.length && crypto.timingSafeEqual(x, y); 
+};
 
-function signToken(u, exp) { const p = b64(JSON.stringify({ u, exp })); return p + '.' + hmac(p); }
+function signToken(u, exp) { 
+  const p = b64(JSON.stringify({ u, exp })); 
+  return p + '.' + hmac(p); 
+}
+
 function verifyToken(t) {
   try {
     const [p, sig] = String(t || '').split('.');
@@ -37,7 +44,12 @@ function verifyToken(t) {
 
 const fails = new Map();
 function blocked(ip) { const f = fails.get(ip); return !!(f && f.until && Date.now() < f.until); }
-function fail(ip) { const f = fails.get(ip) || { n: 0, until: 0 }; f.n++; if (f.n >= 5) { f.until = Date.now() + 60000; f.n = 0; } fails.set(ip, f); }
+function fail(ip) { 
+  const f = fails.get(ip) || { n: 0, until: 0 }; 
+  f.n++; 
+  if (f.n >= 5) { f.until = Date.now() + 60000; f.n = 0; } 
+  fails.set(ip, f); 
+}
 // END_AUTH
 
 // BEGIN_FRAME
