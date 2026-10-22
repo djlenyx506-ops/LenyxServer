@@ -1,14 +1,12 @@
 // Servidor de Lenyx Live v2.1 (Con extracción de PNG de regalos)
-// App (tu teléfono) <-> este servidor <-> WebSocket gestionado de Euler Stream <-> TikTok LIVE
 import http from 'node:http';
 import crypto from 'node:crypto';
 import WebSocket, { WebSocketServer } from 'ws';
 
 const PORT = process.env.PORT || 3000;
-const APP_KEY = process.env.APP_KEY || '';               
-const EULER_API_KEY = process.env.EULER_API_KEY || '';   
-const ALLOWED = (process.env.ALLOWED_USERS || '')        
-  .split(',').map((s) => s.trim().toLowerCase().replace(/^@/, '')).filter(Boolean);
+const APP_KEY = process.env.APP_KEY || '';
+const EULER_API_KEY = process.env.EULER_API_KEY || '';
+const ALLOWED = (process.env.ALLOWED_USERS || '').split(',').map((s) => s.trim().toLowerCase().replace(/^@/, '')).filter(Boolean);
 
 // BEGIN_AUTH
 const USERS = new Map();
@@ -22,16 +20,9 @@ for (const item of (process.env.USERS || '').split(',')) {
 const SECRET = process.env.TOKEN_SECRET || APP_KEY || EULER_API_KEY || 'cambia-esto';
 const b64 = (x) => Buffer.from(x).toString('base64url');
 const hmac = (x) => crypto.createHmac('sha256', SECRET).update(x).digest('base64url');
-const safeEq = (a, b) => { 
-  const x = Buffer.from(String(a)), y = Buffer.from(String(b)); 
-  return x.length === y.length && crypto.timingSafeEqual(x, y); 
-};
+const safeEq = (a, b) => { const x = Buffer.from(String(a)), y = Buffer.from(String(b)); return x.length === y.length && crypto.timingSafeEqual(x, y); };
 
-function signToken(u, exp) { 
-  const p = b64(JSON.stringify({ u, exp })); 
-  return p + '.' + hmac(p); 
-}
-
+function signToken(u, exp) { const p = b64(JSON.stringify({ u, exp })); return p + '.' + hmac(p); }
 function verifyToken(t) {
   try {
     const [p, sig] = String(t || '').split('.');
@@ -46,12 +37,7 @@ function verifyToken(t) {
 
 const fails = new Map();
 function blocked(ip) { const f = fails.get(ip); return !!(f && f.until && Date.now() < f.until); }
-function fail(ip) { 
-  const f = fails.get(ip) || { n: 0, until: 0 }; 
-  f.n++; 
-  if (f.n >= 5) { f.until = Date.now() + 60000; f.n = 0; } 
-  fails.set(ip, f); 
-}
+function fail(ip) { const f = fails.get(ip) || { n: 0, until: 0 }; f.n++; if (f.n >= 5) { f.until = Date.now() + 60000; f.n = 0; } fails.set(ip, f); }
 // END_AUTH
 
 // BEGIN_FRAME
@@ -83,7 +69,7 @@ function mapFrame(raw, send, dbg) {
     else if (/level|upgrade|fansclub/i.test(type)) { send({ t: 'level', u: nm(d), n: lvl(d) }); }
     else if (/chat/i.test(type)) { send({ t: 'chat', u: nm(d), m: String(d.comment || d.content || '') }); }
     
-    // 🎁 AQUÍ ESTÁ EL CAMBIO CLAVE PARA EXTRAER EL PNG DEL REGALO
+    // 🎁 AQUÍ ESTÁ LA CORRECCIÓN: Detectar regalos y extraer la URL del PNG
     else if (/gift/i.test(type)) {
       const gd = d.giftDetails || {};
       if ((gd.giftType ?? d.giftType) === 1 && d.repeatEnd) continue; // fin de racha: ya se contó
