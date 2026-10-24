@@ -352,6 +352,33 @@ const CORS = {
   'access-control-allow-methods': 'GET, OPTIONS',
 };
 
+// ===== Imágenes de regalos (GET /img?u=...) =====
+// La app descarga la imagen a través del servidor para guardarla como archivo en el teléfono.
+// Solo acepta direcciones https de los dominios de TikTok (más los que agregues en IMG_HOSTS, separados por coma).
+const IMG_HOSTS = [
+  'tiktokcdn.com', 'tiktokcdn-us.com', 'tiktokv.com', 'tiktokv.us', 'byteimg.com', 'ibyteimg.com', 'ibytedtos.com',
+  ...String(process.env.IMG_HOSTS || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean),
+];
+const imgHostOk = (h) => IMG_HOSTS.some((d) => h === d || h.endsWith('.' + d));
+const IMG_MAX_BYTES = 1_500_000;
+const imgCache = new Map();
+async function fetchGiftImage(raw) {
+  let url = new URL(raw);
+  for (let i = 0; i < 4; i++) {
+    if (url.protocol !== 'https:' || !imgHostOk(url.hostname)) throw new Error('dominio no permitido: ' + url.hostname);
+    const r = await fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(8000), headers: { 'user-agent': 'Mozilla/5.0' } });
+    const loc = r.headers.get('location');
+    if (r.status >= 300 && r.status < 400 && loc) { url = new URL(loc, url); continue; }
+    if (!r.ok) throw new Error('la imagen respondió ' + r.status);
+    const type = r.headers.get('content-type') || '';
+    if (!type.startsWith('image/')) throw new Error('no es una imagen');
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (!buf.length || buf.length > IMG_MAX_BYTES) throw new Error('tamaño no válido');
+    return { type, buf };
+  }
+  throw new Error('demasiadas redirecciones');
+}
+
 const server = http.createServer(async (req, res) => {
   const path = String(req.url || '').split('?')[0];
 
@@ -376,6 +403,31 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       console.error('Error al cargar el catálogo de regalos:', e?.message || e);
       return json(502, { error: 'No se pudo obtener el catálogo' });
+    }
+  }
+
+  if (path === '/img') {
+    const h = String(req.headers.authorization || '');
+    const tok = h.startsWith('Bearer ') ? h.slice(7) : h;
+    const json = (code, obj) => {
+      res.writeHead(code, { ...CORS, 'content-type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(obj));
+    };
+    if (!verifyToken(tok)) return json(401, { error: 'No autorizado' });
+    let u;
+    try { u = new URL(req.url, 'http://x').searchParams.get('u') || ''; new URL(u); } catch { return json(400, { error: 'Dirección no válida' }); }
+    try {
+      let img = imgCache.get(u);
+      if (!img) {
+        img = await fetchGiftImage(u);
+        imgCache.set(u, img);
+        if (imgCache.size > 300) imgCache.delete(imgCache.keys().next().value);
+      }
+      res.writeHead(200, { ...CORS, 'content-type': img.type, 'cache-control': 'private, max-age=86400' });
+      return res.end(img.buf);
+    } catch (e) {
+      console.error('Error al descargar imagen de regalo:', e?.message || e);
+      return json(502, { error: String(e?.message || 'No se pudo descargar la imagen') });
     }
   }
 

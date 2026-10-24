@@ -12,6 +12,8 @@ VARIABLES DE ENTORNO (Render > Environment)
                  (sin espacios; la fecha de vencimiento es opcional).
   ALLOWED_USERS  (opcional) Usuarios de TikTok permitidos, separados por coma.
   TOKEN_SECRET   (opcional) Secreto para firmar las sesiones.
+  IMG_HOSTS      (opcional) Dominios extra, separados por coma, desde los que la app puede
+                 descargar imágenes de regalos (por defecto solo los de TikTok).
 
 Para que no se duerma (plan gratis): crea un monitor HTTP en uptimerobot.com
 que visite tu dirección https cada 5 minutos.
