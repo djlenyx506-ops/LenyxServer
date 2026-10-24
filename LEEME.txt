@@ -12,9 +12,6 @@ VARIABLES DE ENTORNO (Render > Environment)
                  (sin espacios; la fecha de vencimiento es opcional).
   ALLOWED_USERS  (opcional) Usuarios de TikTok permitidos, separados por coma.
   TOKEN_SECRET   (opcional) Secreto para firmar las sesiones.
-  AZURE_SPEECH_KEY     (opcional) Clave del recurso "Speech" de Azure (voces en la nube).
-  AZURE_SPEECH_REGION  (opcional) Región del recurso, por ejemplo eastus.
-  TTS_PER_MIN          (opcional) Máximo de voces por usuario por minuto (por defecto 60).
 
 Para que no se duerma (plan gratis): crea un monitor HTTP en uptimerobot.com
 que visite tu dirección https cada 5 minutos.

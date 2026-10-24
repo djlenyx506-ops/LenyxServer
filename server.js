@@ -348,79 +348,9 @@ async function loadGiftCatalog() {
 
 const CORS = {
   'access-control-allow-origin': '*',
-  'access-control-allow-headers': 'authorization, content-type',
-  'access-control-allow-methods': 'GET, POST, OPTIONS',
+  'access-control-allow-headers': 'authorization',
+  'access-control-allow-methods': 'GET, OPTIONS',
 };
-
-// ===== Voces en la nube (POST /tts) con Azure Speech =====
-// Variables de entorno: AZURE_SPEECH_KEY y AZURE_SPEECH_REGION (ej. eastus).
-const AZURE_KEY = process.env.AZURE_SPEECH_KEY || '';
-const AZURE_REGION = process.env.AZURE_SPEECH_REGION || '';
-const AZURE_URL = process.env.AZURE_TTS_URL || `https://${AZURE_REGION}.tts.speech.microsoft.com/cognitiveservices/v1`;
-const TTS_MAX_CHARS = 300;
-const TTS_PER_MIN = Number(process.env.TTS_PER_MIN || 60);
-const TTS_VOICES = new Set([
-  'es-CO-SalomeNeural', 'es-CO-GonzaloNeural', 'es-CR-MariaNeural', 'es-CR-JuanNeural',
-  'es-MX-DaliaNeural', 'es-MX-JorgeNeural', 'es-AR-ElenaNeural', 'es-AR-TomasNeural',
-  'es-ES-ElviraNeural', 'es-ES-AlvaroNeural', 'es-US-PalomaNeural', 'es-US-AlonsoNeural',
-  'es-VE-PaolaNeural', 'es-VE-SebastianNeural', 'es-PE-CamilaNeural', 'es-PE-AlexNeural',
-  'es-CL-CatalinaNeural', 'es-CL-LorenzoNeural', 'es-PA-MargaritaNeural', 'es-PA-RobertoNeural',
-  'es-DO-RamonaNeural', 'es-DO-EmilioNeural', 'es-GT-MartaNeural', 'es-GT-AndresNeural',
-  'es-HN-KarlaNeural', 'es-HN-CarlosNeural', 'es-SV-LorenaNeural', 'es-SV-RodrigoNeural',
-  'es-NI-YolandaNeural', 'es-NI-FedericoNeural', 'es-PY-TaniaNeural', 'es-PY-MarioNeural',
-  'es-UY-ValentinaNeural', 'es-UY-MateoNeural', 'es-EC-AndreaNeural', 'es-EC-LuisNeural',
-  'es-BO-SofiaNeural', 'es-BO-MarceloNeural', 'es-PR-KarinaNeural', 'es-PR-VictorNeural',
-  'es-CU-BelkysNeural', 'es-CU-ManuelNeural',
-]);
-const ttsHits = new Map(); // usuario -> marcas de tiempo (último minuto)
-function ttsAllowed(u) {
-  const now = Date.now();
-  const a = (ttsHits.get(u) || []).filter((t) => now - t < 60000);
-  if (a.length >= TTS_PER_MIN) { ttsHits.set(u, a); return false; }
-  a.push(now);
-  ttsHits.set(u, a);
-  return true;
-}
-const ttsCache = new Map(); // frases repetidas ("Hola Ana") no gastan cuota
-const xmlEsc = (x) => String(x).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c]));
-const pct = (n, lo, hi) => {
-  n = Number(n);
-  if (!Number.isFinite(n)) n = 0;
-  n = Math.max(lo, Math.min(hi, Math.round(n)));
-  return (n >= 0 ? '+' : '') + n + '%';
-};
-async function azureSpeak(voice, text, rate, pitch) {
-  const lang = voice.split('-').slice(0, 2).join('-');
-  const ssml =
-    `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="${lang}">` +
-    `<voice name="${voice}"><prosody rate="${pct(rate, -50, 100)}" pitch="${pct(pitch, -50, 50)}">${xmlEsc(text)}</prosody></voice></speak>`;
-  const r = await fetch(AZURE_URL, {
-    method: 'POST',
-    headers: {
-      'Ocp-Apim-Subscription-Key': AZURE_KEY,
-      'Content-Type': 'application/ssml+xml',
-      'X-Microsoft-OutputFormat': 'audio-24khz-48kbitrate-mono-mp3',
-      'User-Agent': 'lenyx-live',
-    },
-    body: ssml,
-    signal: AbortSignal.timeout(10000),
-  });
-  if (!r.ok) throw new Error('Azure respondió ' + r.status);
-  return Buffer.from(await r.arrayBuffer());
-}
-function readBody(req, max = 4096) {
-  return new Promise((resolve, reject) => {
-    let n = 0;
-    const chunks = [];
-    req.on('data', (d) => {
-      n += d.length;
-      if (n > max) { reject(new Error('Solicitud demasiado grande')); req.destroy(); return; }
-      chunks.push(d);
-    });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString()));
-    req.on('error', reject);
-  });
-}
 
 const server = http.createServer(async (req, res) => {
   const path = String(req.url || '').split('?')[0];
@@ -446,38 +376,6 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       console.error('Error al cargar el catálogo de regalos:', e?.message || e);
       return json(502, { error: 'No se pudo obtener el catálogo' });
-    }
-  }
-
-  if (path === '/tts' && req.method === 'POST') {
-    const h = String(req.headers.authorization || '');
-    const tok = h.startsWith('Bearer ') ? h.slice(7) : h;
-    const json = (code, obj) => {
-      res.writeHead(code, { ...CORS, 'content-type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify(obj));
-    };
-    const user = verifyToken(tok);
-    if (!user) return json(401, { error: 'No autorizado' });
-    if (!AZURE_KEY || !AZURE_REGION) return json(503, { error: 'Faltan AZURE_SPEECH_KEY y AZURE_SPEECH_REGION en el servidor' });
-    let b;
-    try { b = JSON.parse(await readBody(req)); } catch { return json(400, { error: 'Solicitud no válida' }); }
-    const text = String(b.text || '').trim().slice(0, TTS_MAX_CHARS);
-    const voice = String(b.voice || '');
-    if (!text || !TTS_VOICES.has(voice)) return json(400, { error: 'Texto o voz no válidos' });
-    if (!ttsAllowed(user)) return json(429, { error: 'Demasiadas voces por minuto' });
-    const key = sha([voice, pct(b.rate, -50, 100), pct(b.pitch, -50, 50), text].join('|')).toString('hex');
-    try {
-      let buf = ttsCache.get(key);
-      if (!buf) {
-        buf = await azureSpeak(voice, text, b.rate, b.pitch);
-        ttsCache.set(key, buf);
-        if (ttsCache.size > 200) ttsCache.delete(ttsCache.keys().next().value);
-      }
-      res.writeHead(200, { ...CORS, 'content-type': 'audio/mpeg', 'cache-control': 'private, max-age=3600' });
-      return res.end(buf);
-    } catch (e) {
-      console.error('Error de voz en la nube:', e?.message || e);
-      return json(502, { error: 'No se pudo generar la voz' });
     }
   }
 
